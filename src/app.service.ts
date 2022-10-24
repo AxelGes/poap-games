@@ -14,7 +14,7 @@ export class AppService {
   clientSecret = this.configService.get('clientSecret');
   accessToken = this.configService.get('accessToken');
 
-  wallets = []
+  eventTokens = []
 
   getHello(): string {
     return 'Hello World!';
@@ -39,14 +39,34 @@ export class AppService {
   // fetch token holders every minute
   @Cron('* * * * * *')
   fetchHolders() {
-    const walletCount = this.wallets.length || 0;
-    const url = this.baseUrl + `/event/60695/poaps?limit=300&offset=${walletCount}`;
+    const tokenCount = this.eventTokens.length || 0;
+    const url = this.baseUrl + `/event/79022/poaps?limit=300&offset=${tokenCount}`;
 
     this.httpService.get(url, { headers: { 'Authorization': `Bearer ${this.accessToken}`, 'X-API-Key': this.apiKey, 'accept': 'application/json' } })
       .subscribe((res) => {
-        this.wallets = this.wallets.concat(res.data.tokens);
-        console.log('wallets: ', this.wallets.length);
-      }
-      );
+        this.eventTokens = this.eventTokens.concat(res.data.tokens);
+      });
+  }
+
+  // fetch for new poaps from holders every minute
+  @Cron('* * * * * *')
+  fetchNewPoaps() {
+    if (!this.eventTokens || this.eventTokens.length < 1) {
+      return;
+    }
+
+    for (const eventToken of this.eventTokens) {
+      console.log('owner: ', eventToken.owner);
+      const url = this.baseUrl + `/actions/scan/${eventToken.owner.id}`;
+
+      this.httpService.get(url, { headers: { 'X-API-Key': this.apiKey } })
+        .subscribe((res) => {
+          for (const poap of res.data) {
+            if (poap.created > eventToken.created) {
+              console.log('new poap: ', poap);
+            }
+          }
+        });
+    }
   }
 }
