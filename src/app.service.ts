@@ -2,13 +2,12 @@ import { HttpService } from '@nestjs/axios';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const Web3 = require('web3');
+import * as TOKEN_ABI_JSON from './abi.json';
 
 @Injectable()
 export class AppService {
-  constructor(
-    private configService: ConfigService,
-    private readonly httpService: HttpService,
-  ) {}
   appEnv = this.configService.get('appEnv');
   baseUrl = this.configService.get('baseUrl');
   apiKey = this.configService.get('apiKey');
@@ -17,8 +16,38 @@ export class AppService {
   clientSecret = this.configService.get('clientSecret');
   accessToken = this.configService.get('accessToken');
 
+  rpcEndpoint = this.configService.get('rpcEndpoint');
+  walletAddress = this.configService.get('walletAddress');
+  walletPrivateKey = this.configService.get('walletPrivateKey');
+  contractAddress = this.configService.get('contractAddress');
+
+  web3Provider = new Web3(this.configService.get('rpcEndpoint'));
+
+  contract = new this.web3Provider.eth.Contract(
+    TOKEN_ABI_JSON as any,
+    this.contractAddress,
+  );
+
   eventTokens = [];
   poapIds = [];
+
+  constructor(
+    private configService: ConfigService,
+    private readonly httpService: HttpService,
+  ) {
+    this.web3Provider.eth.accounts.wallet.add(this.walletPrivateKey);
+
+    // get wallet balance
+    this.web3Provider.eth
+      .getBalance(this.walletAddress)
+      .then((balance) =>
+        console.log(
+          'Wallet balance: ' +
+            this.web3Provider.utils.fromWei(balance, 'ether') +
+            ' ETH',
+        ),
+      );
+  }
 
   getHello(): string {
     return 'Hello World!';
@@ -62,7 +91,7 @@ export class AppService {
   }
 
   // fetch for new poaps from holders every minute
-  @Cron('* * * * * *')
+  @Cron('* * * * *')
   fetchNewPoaps() {
     if (!this.eventTokens || this.eventTokens.length < 1) {
       return;
@@ -80,12 +109,30 @@ export class AppService {
               !this.poapIds.includes(poap.id)
             ) {
               this.poapIds.push(poap.tokenId);
-              console.log(poap.tokenId);
 
               const random = Math.floor(Math.random() * 500);
 
               if (random < 100) {
-                // mint nft to wallet
+                console.log('sending poap');
+
+                // mint nft to user address using wallet private key
+                try {
+                  this.contract.methods
+                    .safeMint(eventToken.owner.id, 'url')
+                    .send({
+                      from: this.walletAddress,
+                      gas: 1000000,
+                    })
+                    .then((receipt) => {
+                      console.log(
+                        'Minted NFT to user address',
+                        eventToken.owner.id,
+                        receipt,
+                      );
+                    });
+                } catch (error) {
+                  console.log(error);
+                }
               }
             }
           }
